@@ -52,8 +52,9 @@ def main() -> int:
         from rsl_rl.runners import OnPolicyRunner
         from flydog.bridge import FlyDogBridge
 
-        env_cfg = parse_env_cfg(args.task, num_envs=1)
+        env_cfg = parse_env_cfg(args.task, device=args.device or "cuda:0", num_envs=1)
         agent_cfg = load_cfg_from_registry(args.task, "rsl_rl_cfg_entry_point")
+        agent_cfg.device = env_cfg.sim.device
         if agent_cfg.class_name != "OnPolicyRunner":
             raise RuntimeError(f"unsupported runner: {agent_cfg.class_name}")
         env = RslRlVecEnvWrapper(gym.make(args.task, cfg=env_cfg),
@@ -82,7 +83,8 @@ def main() -> int:
             started = time.monotonic()
             t = k * dt
             if t + 1e-9 >= next_brain_tick:
-                yaw_dps = float(env.unwrapped._to_control_frame(
+                # CRA373 +yaw is left; FlyDrones haltere input expects +yaw right.
+                yaw_dps = -float(env.unwrapped._to_control_frame(
                     env.unwrapped._robot.data.root_ang_vel_b)[0, 2].item()) * 180 / math.pi
                 cmd = bridge.tick(t, brain_dt, yaw_rate_dps=yaw_dps)
                 next_brain_tick += brain_dt

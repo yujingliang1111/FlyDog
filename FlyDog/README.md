@@ -48,30 +48,82 @@ flydog-demo --seconds 18 --record outputs/flydog.gif --csv outputs/commands.csv
 
 The preview shows neural activity, velocity commands and a **kinematic command path**. The plotted marker is not a physics simulation of the dog. `--live` needs a GUI; `--record` can write a GIF without one. The MiniFly brain is FlyDrones' synthetic 850-neuron demo brain, not the full MaleCNS connectome.
 
-## 2. Run the trained dog in Isaac Sim
+## 2. 在 Isaac Lab 從零訓練 CRA373（沒有 checkpoint 時）
 
-Prerequisites: a working Isaac Lab/Isaac Sim installation that already runs CRA373's `scripts/rsl_rl/play.py`, the CRA373 repository with its USD assets, and a compatible RSL-RL `model_*.pt` checkpoint. **No checkpoint is included in these repositories.** Use the same task family and observation dimensions as the checkpoint's training run: Flat/Flat-Run = 51, Rough/Slope = 238.
+需要 NVIDIA Isaac Lab／Isaac Sim 與 CRA373 專案。先讓 CRA373 原本的 `scripts/rsl_rl/train.py` 能在你的 Isaac Lab 環境執行；這個訓練過程使用 CRA373 原有的 PPO 設定，**不需要 FlyDog 或 FlyDrones**。目前專案沒有附 checkpoint。
 
-Install FlyDog and FlyDrones into Isaac Lab's Python environment, for example from the Isaac Lab root:
-
-```powershell
-.\isaaclab.bat -p -m pip install -e E:\ITRI\RL\CRA373_new\FlyDrones
-.\isaaclab.bat -p -m pip install -e E:\ITRI\RL\CRA373_new\FlyDog
-```
-
-Then run the viewer demo (replace the checkpoint path):
+下列範例在 **PowerShell** 執行。請把三個路徑改成你另一台電腦上的實際位置；三個專案可以放在不同目錄。
 
 ```powershell
-.\isaaclab.bat -p E:\ITRI\RL\CRA373_new\FlyDog\isaac_demo.py `
-  --cra373-root E:\ITRI\RL\CRA373_new\CRA373 `
-  --checkpoint C:\path\to\model_300.pt `
-  --task CRA373-Flat-v0 `
-  --seconds 18 `
-  --real-time `
-  --csv E:\ITRI\RL\CRA373_new\FlyDog\outputs\isaac_trace.csv
+$isaac = "D:\work\IsaacLab"
+$cra = "D:\work\CRA373"
+$flydog = "D:\work\FlyDog"
+$flydrones = "D:\work\FlyDrones"
+cd $isaac
 ```
 
-On Linux use `./isaaclab.sh -p /path/to/FlyDog/isaac_demo.py` and Linux paths. Omit `--real-time` to run as fast as the simulation allows. Add `--headless` for a display-free run. The control loop updates the fly brain at 20 Hz and runs the trained policy at CRA373's environment step rate. The Isaac viewer shows the actual simulated robot walking.
+先從平地行走開始訓練。預設 `CRA373-Flat-v0` 使用 51 維觀測、12 個關節動作；`--num_envs` 可依 GPU 記憶體調小。`--max_iterations 300` 是專案目前的平地預設訓練長度，是否已能穩定行走仍須用 play 檢查。
+
+```powershell
+.\isaaclab.bat -p "$cra\scripts\rsl_rl\train.py" `
+  --task CRA373-Flat-v0 --headless --num_envs 1024 --max_iterations 300
+```
+
+訓練產生的 checkpoint 位於 `$cra\logs\rsl_rl\cra373_flat\<訓練時間資料夾>\model_*.pt`。此路徑由 CRA373 的 `cra373/paths.py` 與 PPO `experiment_name` 決定；若你設了 `CRA373_LOG_ROOT`，則改用該位置。找出最近一個 checkpoint：
+
+```powershell
+$checkpoint = Get-ChildItem "$cra\logs\rsl_rl\cra373_flat" -Recurse -Filter "model_*.pt" |
+  Sort-Object LastWriteTime -Descending | Select-Object -First 1
+$checkpoint.FullName
+```
+
+如果沒有找到檔案，先確認訓練已跑到存檔週期；目前平地 PPO 設定每 50 次 iteration 存一次。需要繼續訓練時，可使用 CRA373 `train.py` 的 `--resume --load_run <訓練時間資料夾>`。
+
+## 3. 先單獨播放訓練好的機器狗
+
+先確認 CRA373 策略本身可在 Isaac Sim 行走，再接上果蠅腦。這裡使用 CRA373 原有的 `play.py`；`--checkpoint` 指向上一步找到的 **RSL-RL 原始 `model_*.pt`**。
+
+```powershell
+.\isaaclab.bat -p "$cra\scripts\rsl_rl\play.py" `
+  --task CRA373-Flat-v0 --checkpoint $checkpoint.FullName `
+  --num_envs 1 --real-time
+```
+
+`play.py` 若省略 `--checkpoint`，會依訓練日誌搜尋最新 checkpoint；明確指定路徑較容易確認使用的是哪一版策略。不要把 `play.py` 匯出的 `exported/policy.pt` 當作 FlyDog 的 `--checkpoint`：FlyDog 載入的是 RSL-RL runner checkpoint。
+
+## 4. 讓果蠅腦在 Isaac Sim 控制機器狗
+
+先把 FlyDrones 和 FlyDog 安裝進 **Isaac Lab 使用的 Python 環境**。在 Isaac Lab 根目錄執行：
+
+```powershell
+.\isaaclab.bat -p -m pip install -e $flydrones
+.\isaaclab.bat -p -m pip install -e $flydog
+```
+
+使用同一個 checkpoint 執行 [isaac_demo.py](isaac_demo.py)。Isaac Sim 視窗會顯示實際物理模擬中的機器狗；終端機會列印手勢與果蠅腦產生的速度目標。
+
+```powershell
+.\isaaclab.bat -p "$flydog\isaac_demo.py" `
+  --cra373-root $cra --checkpoint $checkpoint.FullName `
+  --task CRA373-Flat-v0 --seconds 18 --real-time `
+  --csv "$flydog\outputs\isaac_trace.csv"
+```
+
+Linux 範例（在 Isaac Lab 根目錄執行，替換為你自己的路徑）：
+
+```bash
+CRA=/home/user/CRA373
+FLYDOG=/home/user/FlyDog
+FLYDRONES=/home/user/FlyDrones
+./isaaclab.sh -p "$CRA/scripts/rsl_rl/train.py" --task CRA373-Flat-v0 --headless --num_envs 1024 --max_iterations 300
+CHECKPOINT=$(find "$CRA/logs/rsl_rl/cra373_flat" -name 'model_*.pt' -printf '%T@ %p\n' | sort -nr | head -1 | cut -d' ' -f2-)
+./isaaclab.sh -p "$CRA/scripts/rsl_rl/play.py" --task CRA373-Flat-v0 --checkpoint "$CHECKPOINT" --num_envs 1 --real-time
+./isaaclab.sh -p -m pip install -e "$FLYDRONES"
+./isaaclab.sh -p -m pip install -e "$FLYDOG"
+./isaaclab.sh -p "$FLYDOG/isaac_demo.py" --cra373-root "$CRA" --checkpoint "$CHECKPOINT" --task CRA373-Flat-v0 --seconds 18 --real-time
+```
+
+省略 `--real-time` 可讓模擬盡可能快地跑；加上 `--headless` 可不開視窗。果蠅腦預設以 20 Hz 更新，CRA373 策略則依環境步率執行。若訓練 Rough／Slope 策略，播放時也要選對應任務；Flat／Flat-Run 使用 51 維觀測，Rough／Slope 使用 238 維。
 
 For a MaleCNS brain built by FlyDrones, replace `--brain minifly` with `--brain /path/to/malecns_brain.npz`; calibrate its readout with FlyDrones first and pass a YAML override with `decoder.readout_file` using `--fly-config`. The bridge maps FlyDrones' **throttle** readout to dog forward speed, so a readout calibrated for flight should be checked in the command preview before Isaac playback.
 
@@ -80,8 +132,8 @@ For a MaleCNS brain built by FlyDrones, replace `--brain minifly` with `--brain 
 | FlyDrones output | CRA373 command | Default limit |
 |---|---|---:|
 | `throttle + forward` | forward velocity | ±0.8 m/s |
-| `lateral` | sideways velocity | ±0.5 m/s |
-| `yaw` | yaw rate | ±1.0 rad/s |
+| `lateral` | sideways velocity (sign inverted: FlyDrones right → CRA373 right) | ±0.5 m/s |
+| `yaw` | yaw rate (sign inverted: FlyDrones right → CRA373 right) | ±1.0 rad/s |
 | giant-fiber escape | stop all velocity commands | 0 |
 
 The Isaac script also clamps goals to the selected CRA373 task's training command ranges. Adjust `--forward-mps` and `--yaw-rps` conservatively to stay within the trained policy's behavior. The bridge reads and writes CRA373's current `DirectRLEnv` internals (`_commands`, observation columns 12:15); changes to CRA373's observation layout require updating the bridge. The current demo is simulation-only and does not command physical hardware.
