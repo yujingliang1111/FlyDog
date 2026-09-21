@@ -52,75 +52,68 @@ The preview shows neural activity, velocity commands and a **kinematic command p
 
 需要 NVIDIA Isaac Lab／Isaac Sim 與 CRA373 專案。先讓 CRA373 原本的 `scripts/rsl_rl/train.py` 能在你的 Isaac Lab 環境執行；這個訓練過程使用 CRA373 原有的 PPO 設定，**不需要 FlyDog 或 FlyDrones**。目前專案沒有附 checkpoint。
 
-下列範例在 **PowerShell** 執行。請把三個路徑改成你另一台電腦上的實際位置；三個專案可以放在不同目錄。
+下列範例在 **PowerShell** 執行。請把 `D:\work\...` 範例路徑改成你另一台電腦上的實際位置；三個專案可以放在不同目錄。先切換到 Isaac Lab 根目錄：
 
 ```powershell
-$isaac = "D:\work\IsaacLab"
-$cra = "D:\work\CRA373"
-$flydog = "D:\work\FlyDog"
-$flydrones = "D:\work\FlyDrones"
-cd $isaac
+cd D:\work\IsaacLab
 ```
 
 先從平地行走開始訓練。預設 `CRA373-Flat-v0` 使用 51 維觀測、12 個關節動作；`--num_envs` 可依 GPU 記憶體調小。`--max_iterations 300` 是專案目前的平地預設訓練長度，是否已能穩定行走仍須用 play 檢查。
 
 ```powershell
-.\isaaclab.bat -p "$cra\scripts\rsl_rl\train.py" `
+.\isaaclab.bat -p D:\work\CRA373\scripts\rsl_rl\train.py `
   --task CRA373-Flat-v0 --headless --num_envs 1024 --max_iterations 300
 ```
 
-訓練產生的 checkpoint 位於 `$cra\logs\rsl_rl\cra373_flat\<訓練時間資料夾>\model_*.pt`。此路徑由 CRA373 的 `cra373/paths.py` 與 PPO `experiment_name` 決定；若你設了 `CRA373_LOG_ROOT`，則改用該位置。找出最近一個 checkpoint：
+訓練產生的 checkpoint 位於 `D:\work\CRA373\logs\rsl_rl\cra373_flat\訓練時間資料夾\model_*.pt`。此路徑由 CRA373 的 `cra373/paths.py` 與 PPO `experiment_name` 決定；若你設了 `CRA373_LOG_ROOT`，則改用該位置。列出最近一個 checkpoint 的完整路徑：
 
 ```powershell
-$checkpoint = Get-ChildItem "$cra\logs\rsl_rl\cra373_flat" -Recurse -Filter "model_*.pt" |
-  Sort-Object LastWriteTime -Descending | Select-Object -First 1
-$checkpoint.FullName
+Get-ChildItem D:\work\CRA373\logs\rsl_rl\cra373_flat -Recurse -Filter model_*.pt |
+  Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty FullName
 ```
 
 如果沒有找到檔案，先確認訓練已跑到存檔週期；目前平地 PPO 設定每 50 次 iteration 存一次。需要繼續訓練時，可使用 CRA373 `train.py` 的 `--resume --load_run <訓練時間資料夾>`。
 
 ## 3. 先單獨播放訓練好的機器狗
 
-先確認 CRA373 策略本身可在 Isaac Sim 行走，再接上果蠅腦。這裡使用 CRA373 原有的 `play.py`；`--checkpoint` 指向上一步找到的 **RSL-RL 原始 `model_*.pt`**。
+先確認 CRA373 策略本身可在 Isaac Sim 行走，再接上果蠅腦。這裡使用 CRA373 原有的 `play.py`，預設會尋找最新的 **RSL-RL 原始 `model_*.pt`**。
 
 ```powershell
-.\isaaclab.bat -p "$cra\scripts\rsl_rl\play.py" `
-  --task CRA373-Flat-v0 --checkpoint $checkpoint.FullName `
+.\isaaclab.bat -p D:\work\CRA373\scripts\rsl_rl\play.py `
+  --task CRA373-Flat-v0 `
   --num_envs 1 --real-time
 ```
 
-`play.py` 若省略 `--checkpoint`，會依訓練日誌搜尋最新 checkpoint；明確指定路徑較容易確認使用的是哪一版策略。不要把 `play.py` 匯出的 `exported/policy.pt` 當作 FlyDog 的 `--checkpoint`：FlyDog 載入的是 RSL-RL runner checkpoint。
+`play.py` 若省略 `--checkpoint`，會依訓練日誌搜尋最新 checkpoint；也可加上 `--checkpoint` 與上一步印出的完整路徑，指定某一版策略。不要把 `play.py` 匯出的 `exported/policy.pt` 當作 FlyDog 的 `--checkpoint`：FlyDog 載入的是 RSL-RL runner checkpoint。
 
 ## 4. 讓果蠅腦在 Isaac Sim 控制機器狗
 
 先把 FlyDrones 和 FlyDog 安裝進 **Isaac Lab 使用的 Python 環境**。在 Isaac Lab 根目錄執行：
 
 ```powershell
-.\isaaclab.bat -p -m pip install -e $flydrones
-.\isaaclab.bat -p -m pip install -e $flydog
+.\isaaclab.bat -p -m pip install -e D:\work\FlyDrones
+.\isaaclab.bat -p -m pip install -e D:\work\FlyDog
 ```
 
-使用同一個 checkpoint 執行 [isaac_demo.py](isaac_demo.py)。Isaac Sim 視窗會顯示實際物理模擬中的機器狗；終端機會列印手勢與果蠅腦產生的速度目標。
+使用同一個 checkpoint 執行 [isaac_demo.py](isaac_demo.py)。把下面範例中的訓練時間資料夾與 `model_300.pt` 改成剛才查到的完整路徑。Isaac Sim 視窗會顯示實際物理模擬中的機器狗；終端機會列印手勢與果蠅腦產生的速度目標。
 
 ```powershell
-.\isaaclab.bat -p "$flydog\isaac_demo.py" `
-  --cra373-root $cra --checkpoint $checkpoint.FullName `
+.\isaaclab.bat -p D:\work\FlyDog\isaac_demo.py `
+  --cra373-root D:\work\CRA373 `
+  --checkpoint D:\work\CRA373\logs\rsl_rl\cra373_flat\2026-09-21_12-00-00\model_300.pt `
   --task CRA373-Flat-v0 --seconds 18 --real-time `
-  --csv "$flydog\outputs\isaac_trace.csv"
+  --csv D:\work\FlyDog\outputs\isaac_trace.csv
 ```
 
 Linux 範例（在 Isaac Lab 根目錄執行，替換為你自己的路徑）：
 
 ```bash
-CRA=/home/user/CRA373
-FLYDOG=/home/user/FlyDog
-FLYDRONES=/home/user/FlyDrones
-./isaaclab.sh -p "$CRA/scripts/rsl_rl/train.py" --task CRA373-Flat-v0 --headless --num_envs 1024 --max_iterations 300
-CHECKPOINT=$(find "$CRA/logs/rsl_rl/cra373_flat" -name 'model_*.pt' -printf '%T@ %p\n' | sort -nr | head -1 | cut -d' ' -f2-)
-./isaaclab.sh -p "$CRA/scripts/rsl_rl/play.py" --task CRA373-Flat-v0 --checkpoint "$CHECKPOINT" --num_envs 1 --real-time
-./isaaclab.sh -p -m pip install -e "$FLYDRONES"
-./isaaclab.sh -p -m pip install -e "$FLYDOG"
-./isaaclab.sh -p "$FLYDOG/isaac_demo.py" --cra373-root "$CRA" --checkpoint "$CHECKPOINT" --task CRA373-Flat-v0 --seconds 18 --real-time
+./isaaclab.sh -p /home/user/CRA373/scripts/rsl_rl/train.py --task CRA373-Flat-v0 --headless --num_envs 1024 --max_iterations 300
+find /home/user/CRA373/logs/rsl_rl/cra373_flat -name 'model_*.pt' -printf '%T@ %p\n' | sort -nr | head -1 | cut -d' ' -f2-
+./isaaclab.sh -p /home/user/CRA373/scripts/rsl_rl/play.py --task CRA373-Flat-v0 --num_envs 1 --real-time
+./isaaclab.sh -p -m pip install -e /home/user/FlyDrones
+./isaaclab.sh -p -m pip install -e /home/user/FlyDog
+./isaaclab.sh -p /home/user/FlyDog/isaac_demo.py --cra373-root /home/user/CRA373 --checkpoint /home/user/CRA373/logs/rsl_rl/cra373_flat/2026-09-21_12-00-00/model_300.pt --task CRA373-Flat-v0 --seconds 18 --real-time
 ```
 
 省略 `--real-time` 可讓模擬盡可能快地跑；加上 `--headless` 可不開視窗。果蠅腦預設以 20 Hz 更新，CRA373 策略則依環境步率執行。若訓練 Rough／Slope 策略，播放時也要選對應任務；Flat／Flat-Run 使用 51 維觀測，Rough／Slope 使用 238 維。
